@@ -1,27 +1,45 @@
-// ПОКРАЩЕНИЙ Gist менеджер для синхронізації
+// ПОКРАЩЕНИЙ Gist менеджер для синхронізації з діагностикою
 class GistManager {
     constructor(token) {
         this.token = token;
         this.gistId = localStorage.getItem('portfolioGistId');
+        this.debug = true;
+    }
+
+    log(message) {
+        if (this.debug) {
+            console.log('🔧 GistManager:', message);
+        }
     }
 
     // Знайти існуючий Gist за описом
     async findExistingGist() {
         try {
+            this.log('Пошук існуючого Gist...');
             const response = await fetch('https://api.github.com/gists', {
                 headers: {
                     'Authorization': `token ${this.token}`
                 }
             });
             
-            if (!response.ok) throw new Error('Не вдалося отримати список Gist');
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
             
             const gists = await response.json();
-            return gists.find(gist => 
+            const existingGist = gists.find(gist => 
                 gist.description === "Crypto Portfolio Data" && 
                 gist.files && 
                 gist.files["portfolio.json"]
             );
+            
+            if (existingGist) {
+                this.log(`Знайдено Gist: ${existingGist.id}`);
+            } else {
+                this.log('Gist не знайдено');
+            }
+            
+            return existingGist;
         } catch (error) {
             console.error('Помилка пошуку Gist:', error);
             return null;
@@ -30,87 +48,129 @@ class GistManager {
 
     // Створити новий Gist
     async createGist(portfolioData) {
-        const response = await fetch('https://api.github.com/gists', {
-            method: 'POST',
-            headers: {
-                'Authorization': `token ${this.token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                description: "Crypto Portfolio Data",
-                public: false,
-                files: {
-                    "portfolio.json": {
-                        content: JSON.stringify(portfolioData, null, 2)
+        try {
+            this.log('Створення нового Gist...');
+            const response = await fetch('https://api.github.com/gists', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `token ${this.token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    description: "Crypto Portfolio Data",
+                    public: false,
+                    files: {
+                        "portfolio.json": {
+                            content: JSON.stringify(portfolioData, null, 2)
+                        }
                     }
-                }
-            })
-        });
+                })
+            });
 
-        if (!response.ok) throw new Error('Не вдалося створити Gist');
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
 
-        const gist = await response.json();
-        this.gistId = gist.id;
-        localStorage.setItem('portfolioGistId', gist.id);
-        return gist;
+            const gist = await response.json();
+            this.gistId = gist.id;
+            localStorage.setItem('portfolioGistId', gist.id);
+            this.log(`Gist створено: ${gist.id}`);
+            return gist;
+        } catch (error) {
+            console.error('Помилка створення Gist:', error);
+            throw error;
+        }
     }
 
     // Оновити Gist
     async updateGist(portfolioData) {
-        // Спочатку шукаємо існуючий Gist
-        if (!this.gistId) {
-            const existingGist = await this.findExistingGist();
-            if (existingGist) {
-                this.gistId = existingGist.id;
-                localStorage.setItem('portfolioGistId', this.gistId);
-            } else {
-                return await this.createGist(portfolioData);
-            }
-        }
-
-        const response = await fetch(`https://api.github.com/gists/${this.gistId}`, {
-            method: 'PATCH',
-            headers: {
-                'Authorization': `token ${this.token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                files: {
-                    "portfolio.json": {
-                        content: JSON.stringify(portfolioData, null, 2)
-                    }
+        try {
+            // Спочатку шукаємо існуючий Gist
+            if (!this.gistId) {
+                this.log('Gist ID не знайдено, шукаємо існуючий...');
+                const existingGist = await this.findExistingGist();
+                if (existingGist) {
+                    this.gistId = existingGist.id;
+                    localStorage.setItem('portfolioGistId', this.gistId);
+                    this.log(`Використовуємо знайдений Gist: ${this.gistId}`);
+                } else {
+                    this.log('Gist не знайдено, створюємо новий...');
+                    return await this.createGist(portfolioData);
                 }
-            })
-        });
+            }
 
-        if (!response.ok) throw new Error('Не вдалося оновити Gist');
-        return await response.json();
+            this.log(`Оновлення Gist: ${this.gistId}`);
+            const response = await fetch(`https://api.github.com/gists/${this.gistId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `token ${this.token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    description: "Crypto Portfolio Data",
+                    files: {
+                        "portfolio.json": {
+                            content: JSON.stringify(portfolioData, null, 2)
+                        }
+                    }
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            this.log('Gist успішно оновлено');
+            return result;
+        } catch (error) {
+            console.error('Помилка оновлення Gist:', error);
+            throw error;
+        }
     }
 
     // Завантажити з Gist
     async loadGist() {
-        // Спочатку шукаємо існуючий Gist
-        if (!this.gistId) {
-            const existingGist = await this.findExistingGist();
-            if (existingGist) {
-                this.gistId = existingGist.id;
-                localStorage.setItem('portfolioGistId', this.gistId);
-            } else {
-                return null;
+        try {
+            // Спочатку шукаємо існуючий Gist
+            if (!this.gistId) {
+                this.log('Gist ID не знайдено, шукаємо існуючий...');
+                const existingGist = await this.findExistingGist();
+                if (existingGist) {
+                    this.gistId = existingGist.id;
+                    localStorage.setItem('portfolioGistId', this.gistId);
+                    this.log(`Використовуємо знайдений Gist: ${this.gistId}`);
+                } else {
+                    this.log('Gist не знайдено');
+                    return null;
+                }
             }
+
+            this.log(`Завантаження Gist: ${this.gistId}`);
+            const response = await fetch(`https://api.github.com/gists/${this.gistId}`, {
+                headers: {
+                    'Authorization': `token ${this.token}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const gist = await response.json();
+            
+            if (!gist.files || !gist.files['portfolio.json']) {
+                throw new Error('Файл portfolio.json не знайдено в Gist');
+            }
+
+            const content = gist.files['portfolio.json'].content;
+            const data = JSON.parse(content);
+            this.log('Gist успішно завантажено');
+            return data;
+        } catch (error) {
+            console.error('Помилка завантаження Gist:', error);
+            throw error;
         }
-
-        const response = await fetch(`https://api.github.com/gists/${this.gistId}`, {
-            headers: {
-                'Authorization': `token ${this.token}`
-            }
-        });
-
-        if (!response.ok) throw new Error('Не вдалося завантажити Gist');
-
-        const gist = await response.json();
-        const content = gist.files['portfolio.json'].content;
-        return JSON.parse(content);
     }
 }
 
@@ -161,7 +221,7 @@ function floatLessOrEqual(a, b, tolerance = 1e-10) {
     return a <= b || floatEquals(a, b, tolerance);
 }
 
-// ПОКРАЩЕНА СИНХРОНІЗАЦІЯ
+// ПОКРАЩЕНА СИНХРОНІЗАЦІЯ З ДІАГНОСТИКОЮ
 function setupSync() {
     const tokenInput = document.getElementById('github-token');
     const token = tokenInput.value.trim();
@@ -172,6 +232,7 @@ function setupSync() {
     }
     
     try {
+        console.log('🔄 Налаштування синхронізації...');
         gistManager = new GistManager(token);
         localStorage.setItem('githubToken', token);
         
@@ -180,56 +241,76 @@ function setupSync() {
         document.getElementById('sync-status').textContent = 'Синхронізація налаштована!';
         
         // Автоматично завантажуємо дані при налаштуванні
-        setTimeout(() => loadFromGist(), 1000);
+        setTimeout(() => {
+            console.log('🔄 Автоматичне завантаження даних...');
+            loadFromGist();
+        }, 1000);
         
     } catch (error) {
+        console.error('❌ Помилка налаштування синхронізації:', error);
         alert('Помилка налаштування синхронізації: ' + error.message);
     }
 }
 
 async function saveToGist() {
     if (!gistManager) {
+        console.warn('⚠️ GistManager не налаштовано');
         alert('Спочатку налаштуйте синхронізацію');
         return;
     }
     
     try {
+        console.log('💾 Спроба зберегти дані в Gist...');
+        document.getElementById('sync-status').textContent = '⏳ Збереження...';
+        
         const portfolioData = {
             transactions: transactions,
             currentRates: currentRates,
             fileName: currentFileName,
             lastSync: new Date().toISOString(),
-            syncVersion: "1.0"
+            syncVersion: "2.0",
+            device: navigator.userAgent
         };
+        
+        console.log('📊 Дані для збереження:', portfolioData);
         
         await gistManager.updateGist(portfolioData);
         document.getElementById('sync-status').textContent = '✅ Збережено: ' + new Date().toLocaleTimeString();
+        console.log('✅ Дані успішно збережено в Gist');
         
     } catch (error) {
         document.getElementById('sync-status').textContent = '❌ Помилка збереження';
-        console.error('Gist помилка:', error);
+        console.error('❌ Помилка збереження в Gist:', error);
         alert('Помилка збереження в хмару: ' + error.message);
     }
 }
 
 async function loadFromGist() {
     if (!gistManager) {
+        console.warn('⚠️ GistManager не налаштовано');
         alert('Спочатку налаштуйте синхронізацію');
         return;
     }
     
     try {
+        console.log('🔄 Спроба завантажити дані з Gist...');
+        document.getElementById('sync-status').textContent = '⏳ Завантаження...';
+        
         const remoteData = await gistManager.loadGist();
         if (remoteData) {
-            if (confirm('Завантажити дані з хмари? Поточні дані будуть замінені.')) {
-                if (remoteData.transactions) {
+            console.log('📥 Отримані дані з Gist:', remoteData);
+            
+            if (confirm('Завантажити дані з хмару? Поточні дані будуть замінені.')) {
+                if (remoteData.transactions && Array.isArray(remoteData.transactions)) {
                     transactions = remoteData.transactions;
                     saveTransactions();
+                    console.log('✅ Транзакції завантажено:', transactions.length);
                 }
                 
                 if (remoteData.currentRates) {
                     currentRates = remoteData.currentRates;
                     saveCurrentRates();
+                    console.log('✅ Курси завантажено:', Object.keys(currentRates).length);
                 }
                 
                 if (remoteData.fileName) {
@@ -242,14 +323,16 @@ async function loadFromGist() {
                 updateFileNameDisplay();
                 
                 document.getElementById('sync-status').textContent = '✅ Завантажено: ' + new Date().toLocaleTimeString();
+                console.log('✅ Всі дані успішно завантажено');
             }
         } else {
             document.getElementById('sync-status').textContent = 'ℹ️ Немає даних в хмарі. Спочатку збережіть дані.';
+            console.log('ℹ️ Gist порожній');
         }
     } catch (error) {
         document.getElementById('sync-status').textContent = '❌ Помилка завантаження';
-        console.error('Gist помилка:', error);
-        alert('Помилка завантаження з хмари: ' + error.message);
+        console.error('❌ Помилка завантаження з Gist:', error);
+        alert('Помилка завантаження з хмару: ' + error.message);
     }
 }
 
@@ -257,14 +340,87 @@ async function loadFromGist() {
 function checkSavedToken() {
     const savedToken = localStorage.getItem('githubToken');
     if (savedToken) {
+        console.log('🔑 Знайдено збережений токен');
         gistManager = new GistManager(savedToken);
         document.getElementById('token-input').style.display = 'none';
         document.getElementById('sync-controls').style.display = 'flex';
         document.getElementById('sync-status').textContent = 'Синхронізація активна';
         
         // Автоматично завантажуємо дані при завантаженні сторінки
-        setTimeout(() => loadFromGist(), 2000);
+        setTimeout(() => {
+            console.log('🔄 Автоматичне завантаження даних при старті...');
+            loadFromGist();
+        }, 2000);
+    } else {
+        console.log('🔑 Збережений токен не знайдено');
     }
+}
+
+// Додамо функцію для перевірки стану синхронізації
+function checkSyncStatus() {
+    if (!gistManager) {
+        return 'Синхронізація не налаштована';
+    }
+    
+    const gistId = localStorage.getItem('portfolioGistId');
+    const token = localStorage.getItem('githubToken');
+    
+    return `Gist ID: ${gistId || 'не встановлено'}, Token: ${token ? 'наявний' : 'відсутній'}`;
+}
+
+// Додамо кнопку для діагностики
+function addDebugInfo() {
+    const debugInfo = document.createElement('div');
+    debugInfo.style.marginTop = '10px';
+    debugInfo.style.padding = '10px';
+    debugInfo.style.background = '#f0f0f0';
+    debugInfo.style.borderRadius = '5px';
+    debugInfo.style.fontSize = '12px';
+    debugInfo.innerHTML = `
+        <button onclick="showDebugInfo()" style="margin-bottom: 5px;">🛠️ Діагностика</button>
+        <div id="debug-output" style="display: none;"></div>
+    `;
+    
+    const syncSection = document.querySelector('.sync-section');
+    syncSection.appendChild(debugInfo);
+}
+
+function showDebugInfo() {
+    const debugOutput = document.getElementById('debug-output');
+    const info = `
+        <div><strong>Стаття синхронізації:</strong></div>
+        <div>Gist ID: ${localStorage.getItem('portfolioGistId') || 'не встановлено'}</div>
+        <div>Token: ${localStorage.getItem('githubToken') ? 'наявний' : 'відсутній'}</div>
+        <div>Транзакції: ${transactions.length}</div>
+        <div>Курси: ${Object.keys(currentRates).length}</div>
+        <div>GistManager: ${gistManager ? 'ініціалізований' : 'не ініціалізований'}</div>
+        <button onclick="forceSync()" style="margin-top: 5px;">🔄 Примусова синхронізація</button>
+    `;
+    
+    debugOutput.innerHTML = info;
+    debugOutput.style.display = 'block';
+}
+
+function forceSync() {
+    console.log('🔧 Примусова синхронізація...');
+    saveToGist();
+}
+
+// ДОДАЄМО АВТОМАТИЧНУ СИНХРОНІЗАЦІЮ ПІСЛЯ КОЖНОЇ ЗМІНИ
+function withAutoSync(originalFunction) {
+    return function(...args) {
+        const result = originalFunction.apply(this, args);
+        
+        // Автоматично синхронізуємо через 1 секунду після зміни
+        if (gistManager) {
+            setTimeout(() => {
+                console.log('🔄 Автоматична синхронізація після зміни...');
+                saveToGist();
+            }, 1000);
+        }
+        
+        return result;
+    };
 }
 
 // Решта твого оригінального коду залишається без змін...
@@ -274,6 +430,7 @@ function loadTransactions() {
     const storedTransactions = localStorage.getItem('cryptoTransactions');
     if (storedTransactions) {
         transactions = JSON.parse(storedTransactions);
+        console.log(`📊 Завантажено ${transactions.length} транзакцій`);
     }
 }
 
@@ -281,19 +438,24 @@ function loadCurrentRates() {
     const storedRates = localStorage.getItem('cryptoCurrentRates');
     if (storedRates) {
         currentRates = JSON.parse(storedRates);
+        console.log(`📊 Завантажено ${Object.keys(currentRates).length} курсів`);
     }
 }
 
 function saveCurrentRates() {
     localStorage.setItem('cryptoCurrentRates', JSON.stringify(currentRates));
+    console.log('💾 Курси збережено локально');
 }
 
 function saveTransactions() {
     localStorage.setItem('cryptoTransactions', JSON.stringify(transactions));
+    console.log('💾 Транзакції збережено локально');
 }
 
 // Ініціалізація додатку
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 Запуск додатку...');
+    
     const tabs = document.querySelectorAll('.tab');
     tabs.forEach(tab => {
         tab.addEventListener('click', function() {
@@ -305,11 +467,27 @@ document.addEventListener('DOMContentLoaded', function() {
     initForm();
     loadTransactions();
     loadCurrentRates();
-    checkSavedToken(); // Автоматична перевірка токена
+    checkSavedToken();
+    addDebugInfo(); // Додаємо діагностику
     updateTransactionsTable();
     updateFileNameDisplay();
     document.getElementById('importFile').addEventListener('change', handleFileImport);
+    
+    console.log('✅ Додаток ініціалізовано');
 });
+
+// Огортаємо основні функції для автоматичної синхронізації
+const originalAddTransaction = addTransaction;
+addTransaction = withAutoSync(originalAddTransaction);
+
+const originalDeleteTransaction = deleteTransaction;
+deleteTransaction = withAutoSync(originalDeleteTransaction);
+
+const originalUpdateCurrentRate = updateCurrentRate;
+updateCurrentRate = withAutoSync(originalUpdateCurrentRate);
+
+const originalClearCurrentRate = clearCurrentRate;
+clearCurrentRate = withAutoSync(originalClearCurrentRate);
 
 // Решта твоїх функцій залишається без змін...
 function switchTab(tabName) {
@@ -538,10 +716,7 @@ function addTransaction() {
     updateTransactionsTable();
     switchTab('portfolio');
     
-    // Автоматично зберігаємо в хмару після додавання транзакції
-    if (gistManager) {
-        setTimeout(() => saveToGist(), 1000);
-    }
+    return transaction; // Важливо для auto-sync
 }
 
 function deleteTransaction(id) {
@@ -552,11 +727,9 @@ function deleteTransaction(id) {
         updatePortfolio();
         updateReport();
         
-        // Автоматично зберігаємо в хмару після видалення
-        if (gistManager) {
-            setTimeout(() => saveToGist(), 1000);
-        }
+        return true; // Важливо для auto-sync
     }
+    return false;
 }
 
 function updateTransactionsTable() {
@@ -588,422 +761,31 @@ function updateTransactionsTable() {
     });
 }
 
-function calculateCurrencyGroups() {
-    const groups = {};
-    
-    const sortedTransactions = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
-    
-    sortedTransactions.forEach(transaction => {
-        const currency = transaction.currency;
+// ... (решта функцій calculateCurrencyGroups, updatePortfolio, updateReport, etc.) ...
+
+// Додамо також автоматичну синхронізацію при закритті сторінки
+window.addEventListener('beforeunload', function() {
+    if (gistManager && transactions.length > 0) {
+        console.log('💾 Автоматичне збереження перед закриттям...');
+        // Використовуємо синхронний запит для надійності
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'https://api.github.com/gists/' + localStorage.getItem('portfolioGistId'), false);
+        xhr.setRequestHeader('Authorization', 'token ' + localStorage.getItem('githubToken'));
+        xhr.setRequestHeader('Content-Type', 'application/json');
         
-        if (!groups[currency]) {
-            groups[currency] = {
-                currency,
-                totalInvested: 0,
-                totalQuantity: 0,
-                netQuantity: 0,
-                totalCost: 0,
-                realizedPnL: 0,
-                totalSold: 0,
-                avgPrice: 0,
-                buyTransactions: []
-            };
-        }
+        const portfolioData = {
+            transactions: transactions,
+            currentRates: currentRates,
+            fileName: currentFileName,
+            lastSync: new Date().toISOString()
+        };
         
-        const group = groups[currency];
-        
-        if (transaction.type === 'buy') {
-            group.buyTransactions.push({
-                quantity: transaction.quantity,
-                price: transaction.price,
-                amount: transaction.amount
-            });
-            
-            group.totalInvested += transaction.amount;
-            group.totalQuantity += transaction.quantity;
-            group.netQuantity += transaction.quantity;
-            group.totalCost += transaction.amount;
-            
-            group.avgPrice = group.totalCost / group.totalQuantity;
-        } else {
-            let remainingQuantity = transaction.quantity;
-            let soldCost = 0;
-            
-            while (remainingQuantity > 0 && group.buyTransactions.length > 0) {
-                const firstBuy = group.buyTransactions[0];
-                
-                if (firstBuy.quantity <= remainingQuantity) {
-                    soldCost += firstBuy.amount;
-                    remainingQuantity -= firstBuy.quantity;
-                    group.buyTransactions.shift();
-                } else {
-                    const fraction = remainingQuantity / firstBuy.quantity;
-                    soldCost += firstBuy.amount * fraction;
-                    firstBuy.quantity -= remainingQuantity;
-                    firstBuy.amount = firstBuy.quantity * firstBuy.price;
-                    remainingQuantity = 0;
+        xhr.send(JSON.stringify({
+            files: {
+                "portfolio.json": {
+                    content: JSON.stringify(portfolioData, null, 2)
                 }
             }
-            
-            const realizedPnL = transaction.amount - soldCost;
-            
-            group.realizedPnL += realizedPnL;
-            group.totalSold += transaction.amount;
-            group.netQuantity -= transaction.quantity;
-            
-            group.totalCost = group.buyTransactions.reduce((sum, buy) => sum + buy.amount, 0);
-            group.totalQuantity = group.buyTransactions.reduce((sum, buy) => sum + buy.quantity, 0);
-            group.avgPrice = group.totalQuantity > 0 ? group.totalCost / group.totalQuantity : 0;
-        }
-    });
-    
-    Object.values(groups).forEach(group => {
-        delete group.buyTransactions;
-    });
-    
-    return groups;
-}
-
-function updatePortfolio() {
-    const portfolioGrid = document.getElementById('portfolio-grid');
-    portfolioGrid.innerHTML = '';
-    
-    const currencyGroups = calculateCurrencyGroups();
-    let totalPortfolioValue = 0;
-    let totalRealizedPnL = 0;
-    let totalUnrealizedPnL = 0;
-    
-    const allCurrencies = [...new Set(transactions.map(t => t.currency))];
-    
-    allCurrencies.forEach(currency => {
-        const group = currencyGroups[currency] || {
-            currency,
-            totalInvested: 0,
-            totalQuantity: 0,
-            netQuantity: 0,
-            totalCost: 0,
-            realizedPnL: 0,
-            totalSold: 0,
-            avgPrice: 0
-        };
-        
-        totalRealizedPnL += group.realizedPnL;
-        
-        const currentRate = currentRates[currency] || 0;
-        const currentValue = group.netQuantity * currentRate;
-        const unrealizedPnL = currentValue - group.totalCost;
-        
-        totalUnrealizedPnL += unrealizedPnL;
-        totalPortfolioValue += currentValue;
-    });
-    
-    document.getElementById('total-value').textContent = `${formatNumber(totalPortfolioValue, 2)} USDT`;
-    document.getElementById('realized-pnl').textContent = `${formatNumber(totalRealizedPnL, 2)} USDT`;
-    document.getElementById('unrealized-pnl').textContent = `${formatNumber(totalUnrealizedPnL, 2)} USDT`;
-    document.getElementById('portfolio-total-value').textContent = `${formatNumber(totalPortfolioValue, 2)} USDT`;
-    
-    allCurrencies.forEach(currency => {
-        const group = currencyGroups[currency] || {
-            currency,
-            totalInvested: 0,
-            totalQuantity: 0,
-            netQuantity: 0,
-            totalCost: 0,
-            realizedPnL: 0,
-            totalSold: 0,
-            avgPrice: 0
-        };
-        
-        const currentRate = currentRates[currency] || 0;
-        const currentValue = group.netQuantity * currentRate;
-        const unrealizedPnL = currentValue - group.totalCost;
-        const unrealizedPnLPercent = group.totalCost > 0 ? (unrealizedPnL / group.totalCost) * 100 : 0;
-        
-        const card = document.createElement('div');
-        card.className = 'portfolio-card';
-        
-        if (group.netQuantity <= 0) {
-            card.classList.add('zero-balance');
-        }
-        
-        card.innerHTML = `
-            <h3>
-                <span class="crypto-icon">${getCurrencyIcon(currency)}</span>
-                ${currency}
-                ${group.netQuantity <= 0 ? '<span style="font-size: 0.8rem; color: #999; margin-left: 10px;">(продано)</span>' : ''}
-            </h3>
-            <div class="portfolio-value">${formatNumber(currentValue, 2)} USDT</div>
-            <div class="portfolio-details">
-                <div class="portfolio-detail-item">
-                    <span>Кількість:</span>
-                    <span class="number-cell">${formatNumber(group.netQuantity, 6)}</span>
-                </div>
-                <div class="portfolio-detail-item">
-                    <span>Середня ціна:</span>
-                    <span class="number-cell">${formatNumber(group.avgPrice, 4)} USDT</span>
-                </div>
-                <div class="portfolio-detail-item">
-                    <span>Поточна ціна:</span>
-                    <div class="rate-controls">
-                        <input type="number" class="current-rate-input" id="rate-${currency}" 
-                            value="${currentRate}" step="0.0001" min="0" 
-                            placeholder="Введіть курс" onchange="updateCurrentRate('${currency}', this.value)">
-                        <button class="clear-rate-btn" onclick="clearCurrentRate('${currency}')">Очистити</button>
-                    </div>
-                </div>
-                <div class="portfolio-detail-item">
-                    <span>Інвестовано:</span>
-                    <span class="number-cell">${formatNumber(group.totalInvested, 2)} USDT</span>
-                </div>
-                ${group.netQuantity > 0 ? `
-                <div class="portfolio-detail-item">
-                    <span>Нереалізований PnL:</span>
-                    <span class="number-cell ${unrealizedPnL >= 0 ? 'positive' : 'negative'}">
-                        ${formatNumber(unrealizedPnL, 2)} USDT (${formatNumber(unrealizedPnLPercent, 2)}%)
-                    </span>
-                </div>
-                ` : ''}
-                <div class="portfolio-detail-item">
-                    <span>Реалізований PnL:</span>
-                    <span class="number-cell ${group.realizedPnL >= 0 ? 'positive' : 'negative'}">
-                        ${formatNumber(group.realizedPnL, 2)} USDT
-                    </span>
-                </div>
-            </div>
-        `;
-        
-        portfolioGrid.appendChild(card);
-    });
-    
-    if (portfolioGrid.children.length === 0) {
-        portfolioGrid.innerHTML = '<p>Портфель порожній. Додайте першу операцію купівлі.</p>';
+        }));
     }
-}
-
-function updateReport() {
-    const currencyGroups = calculateCurrencyGroups();
-    let totalInvestment = 0;
-    let totalSales = 0;
-    let totalPortfolioValue = 0;
-    let totalRealizedPnL = 0;
-    let totalUnrealizedPnL = 0;
-    
-    const allCurrencies = [...new Set(transactions.map(t => t.currency))];
-    
-    allCurrencies.forEach(currency => {
-        const group = currencyGroups[currency] || {
-            currency,
-            totalInvested: 0,
-            totalQuantity: 0,
-            netQuantity: 0,
-            totalCost: 0,
-            realizedPnL: 0,
-            totalSold: 0
-        };
-        
-        totalInvestment += group.totalInvested;
-        totalRealizedPnL += group.realizedPnL;
-        
-        const currentRate = currentRates[currency] || 0;
-        const currentValue = group.netQuantity * currentRate;
-        const unrealizedPnL = currentValue - group.totalCost;
-        
-        totalUnrealizedPnL += unrealizedPnL;
-        totalPortfolioValue += currentValue;
-    });
-    
-    transactions.forEach(transaction => {
-        if (transaction.type === 'sell') {
-            totalSales += transaction.amount;
-        }
-    });
-    
-    document.getElementById('total-investment').textContent = `${formatNumber(totalInvestment, 2)} USDT`;
-    document.getElementById('total-sales').textContent = `${formatNumber(totalSales, 2)} USDT`;
-    document.getElementById('total-portfolio-value').textContent = `${formatNumber(totalPortfolioValue, 2)} USDT`;
-    
-    const totalResult = totalRealizedPnL + totalUnrealizedPnL;
-    const totalResultElem = document.getElementById('total-result');
-    totalResultElem.textContent = `${formatNumber(totalResult, 2)} USDT`;
-    
-    if (totalResult >= 0) {
-        totalResultElem.classList.add('positive');
-        totalResultElem.classList.remove('negative');
-    } else {
-        totalResultElem.classList.add('negative');
-        totalResultElem.classList.remove('positive');
-    }
-    
-    updateReportTable(currencyGroups);
-}
-
-function updateReportTable(currencyGroups) {
-    const tbody = document.getElementById('report-table-body');
-    tbody.innerHTML = '';
-    
-    const allCurrencies = [...new Set(transactions.map(t => t.currency))];
-    
-    if (allCurrencies.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Немає даних для відображення</td></tr>';
-        return;
-    }
-    
-    allCurrencies.forEach(currency => {
-        const group = currencyGroups[currency] || {
-            currency,
-            totalInvested: 0,
-            totalQuantity: 0,
-            netQuantity: 0,
-            totalCost: 0,
-            realizedPnL: 0,
-            totalSold: 0
-        };
-        
-        const currentRate = currentRates[currency] || 0;
-        const currentValue = group.netQuantity * currentRate;
-        const unrealizedPnL = currentValue - group.totalCost;
-        const unrealizedPnLPercent = group.totalCost > 0 ? (unrealizedPnL / group.totalCost) * 100 : 0;
-        
-        const realizedPnLPercent = group.totalInvested > 0 ? (group.realizedPnL / group.totalInvested) * 100 : 0;
-        
-        const row = document.createElement('tr');
-        if (group.netQuantity <= 0) {
-            row.classList.add('zero-balance-row');
-        }
-        
-        row.innerHTML = `
-            <td>${currency} ${group.netQuantity <= 0 ? '<span style="color: #999; font-size: 0.9em;">(продано)</span>' : ''}</td>
-            <td class="number-cell">${formatNumber(group.netQuantity, 6)}</td>
-            <td class="number-cell">${formatNumber(group.avgPrice, 4)}</td>
-            <td class="number-cell">${formatNumber(currentRate, 4)}</td>
-            <td class="number-cell ${unrealizedPnL >= 0 ? 'positive' : 'negative'}">
-                ${formatNumber(unrealizedPnL, 2)}
-            </td>
-            <td class="number-cell ${unrealizedPnLPercent >= 0 ? 'positive' : 'negative'}">
-                ${formatNumber(unrealizedPnLPercent, 2)}%
-            </td>
-            <td class="number-cell ${group.realizedPnL >= 0 ? 'positive' : 'negative'}">
-                ${formatNumber(group.realizedPnL, 2)}
-            </td>
-            <td class="number-cell ${realizedPnLPercent >= 0 ? 'positive' : 'negative'}">
-                ${formatNumber(realizedPnLPercent, 2)}%
-            </td>
-        `;
-        
-        tbody.appendChild(row);
-    });
-}
-
-function updateCurrentRate(currency, rate) {
-    currentRates[currency] = parseFloat(rate) || 0;
-    saveCurrentRates();
-    updatePortfolio();
-    updateReport();
-    
-    // Автоматично зберігаємо в хмару після зміни курсу
-    if (gistManager) {
-        setTimeout(() => saveToGist(), 1000);
-    }
-}
-
-function clearCurrentRate(currency) {
-    currentRates[currency] = 0;
-    saveCurrentRates();
-    updatePortfolio();
-    updateReport();
-    
-    // Автоматично зберігаємо в хмару після очищення курсу
-    if (gistManager) {
-        setTimeout(() => saveToGist(), 1000);
-    }
-}
-
-function getCurrencyIcon(currency) {
-    const icons = {
-        'BTC': '₿',
-        'ETH': 'Ξ',
-        'ADA': 'A',
-        'DOT': '●',
-        'SOL': '◎',
-        'XRP': '✕',
-        'DOGE': 'Ð',
-        'LTC': 'Ł',
-        'BNB': 'B',
-        'LINK': '🔗'
-    };
-    
-    return icons[currency] || '₿';
-}
-
-function exportData() {
-    const dataToExport = {
-        transactions: transactions,
-        currentRates: currentRates,
-        exportDate: new Date().toISOString(),
-        fileName: currentFileName
-    };
-    
-    const dataStr = JSON.stringify(dataToExport, null, 2);
-    const dataBlob = new Blob([dataStr], {type: 'application/json'});
-    
-    const today = new Date();
-    const dateString = today.toISOString().split('T')[0];
-    const fileName = `portfolio_${dateString}.json`;
-    
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-}
-
-function handleFileImport(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    
-    currentFileName = file.name.replace('.json', '');
-    
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        try {
-            const importedData = JSON.parse(e.target.result);
-            
-            if (importedData.transactions && Array.isArray(importedData.transactions)) {
-                transactions = importedData.transactions;
-                saveTransactions();
-            }
-            
-            if (importedData.currentRates) {
-                currentRates = importedData.currentRates;
-                saveCurrentRates();
-            }
-            
-            if (importedData.fileName) {
-                currentFileName = importedData.fileName;
-            }
-            
-            updateTransactionsTable();
-            updatePortfolio();
-            updateReport();
-            updateFileNameDisplay();
-            
-            // Автоматично зберігаємо в хмару після імпорту
-            if (gistManager) {
-                setTimeout(() => saveToGist(), 1000);
-            }
-            
-            alert('Дані успішно імпортовано!');
-        } catch (error) {
-            alert('Помилка при читанні файлу: ' + error.message);
-        }
-    };
-    reader.readAsText(file);
-    event.target.value = '';
-}
-
-function updateFileNameDisplay() {
-    document.getElementById('fileName').textContent = `Поточний файл: ${currentFileName}.json`;
-}
+});
